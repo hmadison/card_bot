@@ -10,11 +10,12 @@ import "net/url"
 import "bytes"
 import "encoding/json"
 import "errors"
+import "strings"
 
 var (
 	DiscordToken string
-	ApiBase string
-	BotUserId string
+	ApiBase      string
+	BotUserId    string
 	wg           sync.WaitGroup
 	botGuilds    []*discordgo.UserGuild
 )
@@ -26,7 +27,7 @@ type Card struct {
 func init() {
 	DiscordToken = os.Getenv("DISCORD_TOKEN")
 	ApiBase = "https://api.deckbrew.com/mtg/"
-	
+
 	if DiscordToken == "" {
 		panic("Discord token missing")
 	}
@@ -38,7 +39,8 @@ func main() {
 		panic(err)
 	}
 
-	dg.AddHandler(msgCardByName)
+	dg.AddHandler(msgDirectCardByName)
+	dg.AddHandler(msgInlineCardByName)
 	dg.AddHandler(disconnect)
 
 	user, err := dg.User("@me")
@@ -47,7 +49,7 @@ func main() {
 	}
 
 	BotUserId = user.ID
-	log.Printf("%+v", user)
+	log.Printf("Connected as %s (%s)", user.Username, BotUserId)
 
 	botGuilds, err = dg.UserGuilds()
 
@@ -60,7 +62,23 @@ func main() {
 	wg.Wait()
 }
 
-func msgCardByName(s *discordgo.Session, m *discordgo.MessageCreate) {
+func msgDirectCardByName(s *discordgo.Session, m *discordgo.MessageCreate) {
+	commandRegexp := regexp.MustCompile(`\!(.+)$`)
+	matches := commandRegexp.FindStringSubmatch(m.Content)
+
+	if matches == nil {
+		return
+	}
+
+	if m.Author.ID == BotUserId {
+		return
+	}
+
+	name := matches[1]
+	sendCardMessage(s, name, m.ChannelID)
+}
+
+func msgInlineCardByName(s *discordgo.Session, m *discordgo.MessageCreate) {
 	commandRegexp := regexp.MustCompile(`\[{2}([^\]]+)\]{2}`)
 	matches := commandRegexp.FindAllStringSubmatch(m.Content, -1)
 
@@ -74,19 +92,37 @@ func msgCardByName(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	for _, match := range matches {
 		name := match[1]
-		cards, err := cardsByName(name)
-
-		if err != nil {
-			return
-		}
-		
-		s.ChannelMessageSend(m.ChannelID, cardToString(cards[0]))
+		sendCardMessage(s, name, m.ChannelID)
 	}
 }
 
-
 func disconnect(s *discordgo.Session, d *discordgo.Disconnect) {
+	log.Printf("Disconnected from Discord.")
 	wg.Done()
+}
+
+func sendCardMessage(s *discordgo.Session, name string, channelID string) {
+	cards, err := cardsByName(name)
+
+	if err != nil {
+		log.Printf("[LOOKUP_ERROR] %s %s", name, err)
+		return
+	}
+
+	if len(cards) == 0 {
+		return
+	}
+
+	var card Card
+	card = cards[0]
+
+	for i, c := range cards {
+		if strings.EqualFold(c.Name, name) {
+			card = cards[i]
+		}
+	}
+
+	s.ChannelMessageSend(channelID, cardToString(card))
 }
 
 func cardToString(card Card) (res string) {
@@ -95,7 +131,7 @@ func cardToString(card Card) (res string) {
 		res += " [" + card.Power + "," + card.Toughness + "]"
 	}
 	res += "\n" + card.Text + "\n"
-	res += "<" + "https://magiccards.info/query?q=!" + url.QueryEscape(card.Name) + ">"
+	res += "<" + "http://magiccards.info/query?q=!" + url.QueryEscape(card.Name) + ">"
 	return
 }
 
@@ -112,15 +148,15 @@ func cardsByName(name string) ([]Card, error) {
 	}
 
 	var cards []Card
-	
+
 	buf := new(bytes.Buffer)
 	buf.ReadFrom(resp.Body)
 
 	err = json.Unmarshal(buf.Bytes(), &cards)
 
 	if err != nil {
-		return  nil, errors.New("Error parsing response")
+		return nil, errors.New("Error parsing response")
 	}
-	
+
 	return cards, nil
 }
