@@ -10,7 +10,7 @@ import "net/url"
 import "bytes"
 import "encoding/json"
 import "errors"
-import "strings"
+import "github.com/arbovm/levenshtein"
 
 var (
 	DiscordToken string
@@ -117,7 +117,7 @@ func sendCardMessage(s *discordgo.Session, name string, channelID string) {
 	card = cards[0]
 
 	for i, c := range cards {
-		if strings.EqualFold(c.Name, name) {
+		if levenshtein.Distance(c.Name, name) < levenshtein.Distance(card.Name, name) {
 			card = cards[i]
 		}
 	}
