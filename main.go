@@ -10,23 +10,33 @@ import "net/url"
 import "bytes"
 import "encoding/json"
 import "errors"
+import "strings"
+import "fmt"
 import "github.com/arbovm/levenshtein"
 
 var (
-	DiscordToken string
-	ApiBase      string
-	BotUserId    string
-	wg           sync.WaitGroup
-	botGuilds    []*discordgo.UserGuild
+	DiscordToken  string
+	ApiBase       string
+	NotFoundEmoji string
+	BotUserId     string
+	wg            sync.WaitGroup
+	botGuilds     []*discordgo.UserGuild
 )
 
 type Card struct {
 	Name, Cost, Text, Power, Toughness string
+	Editions                           []struct {
+		SetId        string `json:"set_id"`
+		Number       string
+		MultiverseId int `json:"multiverse_id"`
+		Layout       string
+	}
 }
 
 func init() {
 	DiscordToken = os.Getenv("DISCORD_TOKEN")
 	ApiBase = "https://api.deckbrew.com/mtg/"
+	NotFoundEmoji = "👻"
 
 	if DiscordToken == "" {
 		panic("Discord token missing")
@@ -70,12 +80,12 @@ func msgDirectCardByName(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	if m.Author.ID == BotUserId {
+	if m.Author.Bot {
 		return
 	}
 
 	name := matches[1]
-	sendCardMessage(s, name, m.ChannelID)
+	sendCardMessage(s, m, name)
 }
 
 func msgInlineCardByName(s *discordgo.Session, m *discordgo.MessageCreate) {
@@ -86,13 +96,13 @@ func msgInlineCardByName(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	if m.Author.ID == BotUserId {
+	if m.Author.Bot {
 		return
 	}
 
 	for _, match := range matches {
 		name := match[1]
-		sendCardMessage(s, name, m.ChannelID)
+		sendCardMessage(s, m, name)
 	}
 }
 
@@ -101,15 +111,12 @@ func disconnect(s *discordgo.Session, d *discordgo.Disconnect) {
 	wg.Done()
 }
 
-func sendCardMessage(s *discordgo.Session, name string, channelID string) {
+func sendCardMessage(s *discordgo.Session, m *discordgo.MessageCreate, name string) {
 	cards, err := cardsByName(name)
 
-	if err != nil {
-		log.Printf("[LOOKUP_ERROR] %s %s", name, err)
-		return
-	}
-
-	if len(cards) == 0 {
+	if err != nil || len(cards) == 0 {
+		s.MessageReactionAdd(m.ChannelID, m.ID, NotFoundEmoji)
+		log.Printf("[LOOKUP_ERROR]\tname=%s\terror=%s", name, err)
 		return
 	}
 
@@ -122,17 +129,40 @@ func sendCardMessage(s *discordgo.Session, name string, channelID string) {
 		}
 	}
 
-	s.ChannelMessageSend(channelID, cardToString(card))
+	s.ChannelMessageSend(m.ChannelID, cardToString(card))
 }
 
 func cardToString(card Card) (res string) {
-	res = "**" + card.Name + "** " + card.Cost
+	edition := card.Editions[0]
+
+	res = "**" + card.Name + "** " + formatMana(card.Cost)
+
 	if card.Power != "" {
-		res += " [" + card.Power + "," + card.Toughness + "]"
+		res += " [" + card.Power + "/" + card.Toughness + "]"
 	}
-	res += "\n" + card.Text + "\n"
-	res += "<" + "http://magiccards.info/query?q=!" + url.QueryEscape(card.Name) + ">"
+
+	res += "\n" + formatMana(card.Text) + "\n"
+
+	if edition.Layout == "split" {
+		res += "<" + "http://magiccards.info/" + strings.ToLower(edition.SetId) + "/en/" + edition.Number + ".html>"
+	} else {
+		res += "<" + "http://magiccards.info/query?q=!" + url.QueryEscape(card.Name) + ">"
+	}
+
 	return
+}
+
+func formatMana(input string) string {
+	src := []byte(input)
+	quote := regexp.MustCompile(`\{(.+)\}`)
+	space := regexp.MustCompile(`}{`)
+
+	src = quote.ReplaceAllFunc(src, func(s []byte) []byte {
+		return []byte(fmt.Sprintf("`%s`", string(s)))
+	})
+
+	src = space.ReplaceAllLiteral(src, []byte("} {"))
+	return string(src)
 }
 
 func cardsByName(name string) ([]Card, error) {
@@ -155,7 +185,7 @@ func cardsByName(name string) ([]Card, error) {
 	err = json.Unmarshal(buf.Bytes(), &cards)
 
 	if err != nil {
-		return nil, errors.New("Error parsing response")
+		return nil, err
 	}
 
 	return cards, nil
