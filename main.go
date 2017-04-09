@@ -18,9 +18,7 @@ var (
 	DiscordToken  string
 	ApiBase       string
 	NotFoundEmoji string
-	BotUserId     string
 	wg            sync.WaitGroup
-	botGuilds     []*discordgo.UserGuild
 )
 
 type Card struct {
@@ -58,10 +56,7 @@ func main() {
 		panic(err)
 	}
 
-	BotUserId = user.ID
-	log.Printf("Connected as %s (%s)", user.Username, BotUserId)
-
-	botGuilds, err = dg.UserGuilds()
+	log.Printf("Connected as %s", user.Username)
 
 	wg.Add(1)
 	err = dg.Open()
@@ -73,14 +68,10 @@ func main() {
 }
 
 func msgDirectCardByName(s *discordgo.Session, m *discordgo.MessageCreate) {
-	commandRegexp := regexp.MustCompile(`\!(.+)$`)
+	commandRegexp := regexp.MustCompile(`^\!(.+)$`)
 	matches := commandRegexp.FindStringSubmatch(m.Content)
 
-	if matches == nil {
-		return
-	}
-
-	if m.Author.Bot {
+	if matches == nil || m.Author.Bot {
 		return
 	}
 
@@ -92,11 +83,7 @@ func msgInlineCardByName(s *discordgo.Session, m *discordgo.MessageCreate) {
 	commandRegexp := regexp.MustCompile(`\[{2}([^\]]+)\]{2}`)
 	matches := commandRegexp.FindAllStringSubmatch(m.Content, -1)
 
-	if matches == nil {
-		return
-	}
-
-	if m.Author.Bot {
+	if matches == nil || m.Author.Bot {
 		return
 	}
 
@@ -107,7 +94,6 @@ func msgInlineCardByName(s *discordgo.Session, m *discordgo.MessageCreate) {
 }
 
 func disconnect(s *discordgo.Session, d *discordgo.Disconnect) {
-	log.Printf("Disconnected from Discord.")
 	wg.Done()
 }
 
@@ -170,7 +156,7 @@ func cardsByName(name string) ([]Card, error) {
 	resp, err := http.Get(requestUrl)
 
 	if err != nil {
-		return nil, errors.New("Error communicating with DeckBrew")
+		return nil, err
 	} else if resp.StatusCode == 404 {
 		return nil, errors.New("Unable to find a card with `" + name + "`")
 	} else if resp.StatusCode != 200 {
