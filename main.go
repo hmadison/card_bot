@@ -1,4 +1,4 @@
-package main
+package main //testing
 
 import "github.com/bwmarrin/discordgo"
 import "os"
