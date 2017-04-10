@@ -23,6 +23,7 @@ var (
 
 type Card struct {
 	Name, Cost, Text, Power, Toughness string
+	Types []string
 	Editions                           []struct {
 		SetId        string `json:"set_id"`
 		Number       string
@@ -127,6 +128,8 @@ func cardToString(card Card) (res string) {
 		res += " [" + card.Power + "/" + card.Toughness + "]"
 	}
 
+	res += "\n" + formatTypes(card.Types)
+
 	res += "\n" + formatMana(card.Text) + "\n"
 
 	if edition.Layout == "split" {
@@ -135,6 +138,14 @@ func cardToString(card Card) (res string) {
 		res += "<" + "http://magiccards.info/query?q=!" + url.QueryEscape(card.Name) + ">"
 	}
 
+	return
+}
+
+func formatTypes(inputs []string) (res string) {
+	res += "*"
+	res += strings.Join(inputs, " ")
+	res += "*"
+	res = strings.Title(res)
 	return
 }
 
