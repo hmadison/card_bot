@@ -34,7 +34,7 @@ type Card struct {
 func init() {
 	DiscordToken = os.Getenv("DISCORD_TOKEN")
 	ApiBase = "https://api.deckbrew.com/mtg/"
-	NotFoundEmoji = "👻"
+	NotFoundEmoji = ":MeguminNoMp:"
 
 	if DiscordToken == "" {
 		panic("Discord token missing")
