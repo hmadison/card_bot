@@ -28,6 +28,7 @@ type Card struct {
 		SetId        string `json:"set_id"`
 		Number       string
 		MultiverseId int `json:"multiverse_id"`
+		ImageUrl string `json:"image_url"`
 		Layout       string
 	}
 }
@@ -100,6 +101,7 @@ func disconnect(s *discordgo.Session, d *discordgo.Disconnect) {
 
 func sendCardMessage(s *discordgo.Session, m *discordgo.MessageCreate, name string) {
 	cards, err := cardsByName(name)
+	prefexFound := false
 
 	if err != nil || len(cards) == 0 {
 		s.MessageReactionAdd(m.ChannelID, m.ID, NotFoundEmoji)
@@ -110,13 +112,36 @@ func sendCardMessage(s *discordgo.Session, m *discordgo.MessageCreate, name stri
 	var card Card
 	card = cards[0]
 
-	for i, c := range cards {
-		if levenshtein.Distance(c.Name, name) < levenshtein.Distance(card.Name, name) {
-			card = cards[i]
+	for _, c := range cards {
+		uC := strings.ToUpper(c.Name)
+		uG := strings.ToUpper(name)
+		if strings.HasPrefix(uC, uG) {
+			card = c
+			prefexFound = true
+		}
+	}
+	
+	for _, c := range cards {
+		if levenshtein.Distance(c.Name, name) < levenshtein.Distance(card.Name, name) && !prefexFound {
+			card = c
 		}
 	}
 
-	s.ChannelMessageSend(m.ChannelID, cardToString(card))
+	s.ChannelMessageSend(m.ChannelID, cardToUrl(card))
+}
+
+func cardToUrl(card Card) (res string) {
+	edition := card.Editions[0]
+
+	for _, e := range card.Editions {
+		if e.MultiverseId > edition.MultiverseId {
+			edition = e
+		}
+	}
+
+	res = edition.ImageUrl
+	
+	return
 }
 
 func cardToString(card Card) (res string) {
@@ -127,8 +152,6 @@ func cardToString(card Card) (res string) {
 	if card.Power != "" {
 		res += " [" + card.Power + "/" + card.Toughness + "]"
 	}
-
-	res += "\n" + formatTypes(card.Types)
 
 	res += "\n" + formatMana(card.Text) + "\n"
 
