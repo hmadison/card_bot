@@ -11,24 +11,25 @@ import "bytes"
 import "encoding/json"
 import "errors"
 import "strings"
-import "github.com/arbovm/levenshtein"
+import "github.com/xrash/smetrics"
 
 var (
 	DiscordToken  string
 	ApiBase       string
 	NotFoundEmoji string
-	Formatter cardFormatter
+	Formatter     cardFormatter
 	wg            sync.WaitGroup
 )
 
 type Card struct {
 	Name, Cost, Text, Power, Toughness string
-	Types []string
+	Types                              []string
 	Editions                           []struct {
+		Set          string
 		SetId        string `json:"set_id"`
 		Number       string
-		MultiverseId int `json:"multiverse_id"`
-		ImageUrl string `json:"image_url"`
+		MultiverseId int    `json:"multiverse_id"`
+		ImageUrl     string `json:"image_url"`
 		Layout       string
 	}
 }
@@ -102,8 +103,8 @@ func disconnect(s *discordgo.Session, d *discordgo.Disconnect) {
 
 func sendCardMessage(s *discordgo.Session, m *discordgo.MessageCreate, given string) {
 	name := strings.Split(given, "/")[0]
+	name = strings.ToUpper(name)
 	cards, err := cardsByName(name)
-	prefexFound := false
 
 	if err != nil || len(cards) == 0 {
 		s.MessageReactionAdd(m.ChannelID, m.ID, NotFoundEmoji)
@@ -113,21 +114,19 @@ func sendCardMessage(s *discordgo.Session, m *discordgo.MessageCreate, given str
 
 	var card Card
 	card = cards[0]
+	currentBestDistance := 256
 
 	for _, c := range cards {
-		uC := strings.ToUpper(c.Name)
-		uG := strings.ToUpper(name)
-		if strings.HasPrefix(uC, uG) {
+		upperTest := strings.ToUpper(c.Name)
+		testBestDistance := smetrics.WagnerFischer(name, upperTest, 1, 1, 2)
+
+		if testBestDistance < currentBestDistance {
 			card = c
-			prefexFound = true
+			currentBestDistance = testBestDistance
 		}
 	}
-	
-	for _, c := range cards {
-		if levenshtein.Distance(c.Name, name) < levenshtein.Distance(card.Name, name) && !prefexFound {
-			card = c
-		}
-	}
+
+	log.Printf("[FOUND]\tcard=%s\tdistance=%i", card.Name, currentBestDistance)
 
 	Formatter.Respond(given, card, s, m)
 }

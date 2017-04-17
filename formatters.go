@@ -10,9 +10,8 @@ type cardFormatter interface {
 	Respond(string, Card, *discordgo.Session, *discordgo.MessageCreate)
 }
 
-
-type TextFormatter struct {}
-type ImageFormatter struct {}
+type TextFormatter struct{}
+type ImageFormatter struct{}
 
 func (t TextFormatter) Respond(g string, c Card, s *discordgo.Session, m *discordgo.MessageCreate) {
 	s.ChannelMessageSend(m.ChannelID, cardToString(c))
@@ -28,17 +27,17 @@ func (i ImageFormatter) Respond(g string, c Card, s *discordgo.Session, m *disco
 			edition = e
 		}
 	}
-	
+
 	if len(parts) > 1 {
 		for _, e := range c.Editions {
 			uS := strings.ToUpper(parts[1])
-			if e.SetId == uS && e.MultiverseId != 0 {
+			if (e.SetId == uS || e.Set == uS) && e.MultiverseId != 0 {
 				edition = e
 			}
 		}
 	}
 
-	s.ChannelMessageSend(m.ChannelID,  edition.ImageUrl)
+	s.ChannelMessageSend(m.ChannelID, edition.ImageUrl)
 	return
 }
 
