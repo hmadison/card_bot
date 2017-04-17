@@ -12,6 +12,7 @@ import "encoding/json"
 import "errors"
 import "strings"
 import "github.com/xrash/smetrics"
+import "math/rand"
 
 var (
 	DiscordToken  string
@@ -20,6 +21,8 @@ var (
 	Formatter     cardFormatter
 	wg            sync.WaitGroup
 )
+
+var Formats = [...]string{"Standard", "Modern", "Legacy", "Vintage", "Draft", "Two-Headed Giant", "Commander", "Archenemy", "Planechase"}
 
 type Card struct {
 	Name, Cost, Text, Power, Toughness string
@@ -128,6 +131,7 @@ func sendCardMessage(s *discordgo.Session, m *discordgo.MessageCreate, given str
 
 	log.Printf("[FOUND]\tcard=%s\tdistance=%i", card.Name, currentBestDistance)
 
+	s.UpdateStatus(0, Formats[rand.Intn(len(Formats))])
 	Formatter.Respond(given, card, s, m)
 }
 
