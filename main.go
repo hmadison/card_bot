@@ -11,13 +11,13 @@ import "bytes"
 import "encoding/json"
 import "errors"
 import "strings"
-import "fmt"
 import "github.com/arbovm/levenshtein"
 
 var (
 	DiscordToken  string
 	ApiBase       string
 	NotFoundEmoji string
+	Formatter cardFormatter
 	wg            sync.WaitGroup
 )
 
@@ -37,6 +37,7 @@ func init() {
 	DiscordToken = os.Getenv("DISCORD_TOKEN")
 	ApiBase = "https://api.deckbrew.com/mtg/"
 	NotFoundEmoji = "👻"
+	Formatter = ImageFormatter{}
 
 	if DiscordToken == "" {
 		panic("Discord token missing")
@@ -99,7 +100,8 @@ func disconnect(s *discordgo.Session, d *discordgo.Disconnect) {
 	wg.Done()
 }
 
-func sendCardMessage(s *discordgo.Session, m *discordgo.MessageCreate, name string) {
+func sendCardMessage(s *discordgo.Session, m *discordgo.MessageCreate, given string) {
+	name := strings.Split(given, "/")[0]
 	cards, err := cardsByName(name)
 	prefexFound := false
 
@@ -127,62 +129,7 @@ func sendCardMessage(s *discordgo.Session, m *discordgo.MessageCreate, name stri
 		}
 	}
 
-	s.ChannelMessageSend(m.ChannelID, cardToUrl(card))
-}
-
-func cardToUrl(card Card) (res string) {
-	edition := card.Editions[0]
-
-	for _, e := range card.Editions {
-		if e.MultiverseId > edition.MultiverseId {
-			edition = e
-		}
-	}
-
-	res = edition.ImageUrl
-	
-	return
-}
-
-func cardToString(card Card) (res string) {
-	edition := card.Editions[0]
-
-	res = "**" + card.Name + "** " + formatMana(card.Cost)
-
-	if card.Power != "" {
-		res += " [" + card.Power + "/" + card.Toughness + "]"
-	}
-
-	res += "\n" + formatMana(card.Text) + "\n"
-
-	if edition.Layout == "split" {
-		res += "<" + "http://magiccards.info/" + strings.ToLower(edition.SetId) + "/en/" + edition.Number + ".html>"
-	} else {
-		res += "<" + "http://magiccards.info/query?q=!" + url.QueryEscape(card.Name) + ">"
-	}
-
-	return
-}
-
-func formatTypes(inputs []string) (res string) {
-	res += "*"
-	res += strings.Join(inputs, " ")
-	res += "*"
-	res = strings.Title(res)
-	return
-}
-
-func formatMana(input string) string {
-	src := []byte(input)
-	quote := regexp.MustCompile(`\{(.+)\}`)
-	space := regexp.MustCompile(`}{`)
-
-	src = quote.ReplaceAllFunc(src, func(s []byte) []byte {
-		return []byte(fmt.Sprintf("`%s`", string(s)))
-	})
-
-	src = space.ReplaceAllLiteral(src, []byte("} {"))
-	return string(src)
+	Formatter.Respond(given, card, s, m)
 }
 
 func cardsByName(name string) ([]Card, error) {
