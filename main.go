@@ -11,37 +11,32 @@ import "bytes"
 import "encoding/json"
 import "errors"
 import "strings"
-import "github.com/xrash/smetrics"
 import "math/rand"
+import "fmt"
 
 var (
 	DiscordToken  string
 	ApiBase       string
 	NotFoundEmoji string
-	Formatter     cardFormatter
 	wg            sync.WaitGroup
 )
 
 var Formats = [...]string{"Standard", "Modern", "Legacy", "Vintage", "Draft", "Two-Headed Giant", "Commander", "Archenemy", "Planechase"}
 
+type Results struct {
+	Data []Card
+}
+
 type Card struct {
-	Name, Cost, Text, Power, Toughness string
-	Types                              []string
-	Editions                           []struct {
-		Set          string
-		SetId        string `json:"set_id"`
-		Number       string
-		MultiverseId int    `json:"multiverse_id"`
-		ImageUrl     string `json:"image_url"`
-		Layout       string
-	}
+	Name string
+	Price string `json:"usd"`
+	ImageUrl string `json:"image_uri"`
 }
 
 func init() {
 	DiscordToken = os.Getenv("DISCORD_TOKEN")
-	ApiBase = "https://api.deckbrew.com/mtg/"
+	ApiBase = "https://api.scryfall.com/"
 	NotFoundEmoji = "👻"
-	Formatter = ImageFormatter{}
 
 	if DiscordToken == "" {
 		panic("Discord token missing")
@@ -106,37 +101,41 @@ func disconnect(s *discordgo.Session, d *discordgo.Disconnect) {
 
 func sendCardMessage(s *discordgo.Session, m *discordgo.MessageCreate, given string) {
 	name := strings.Split(given, "/")[0]
-	name = strings.ToUpper(name)
-	cards, err := cardsByName(name)
-
+	cards, err := cardByString(given)
+	
 	if err != nil || len(cards) == 0 {
 		s.MessageReactionAdd(m.ChannelID, m.ID, NotFoundEmoji)
-		log.Printf("[LOOKUP_ERROR]\tname=%s\terror=%s", name, err)
+		log.Printf("[LOOKUP_ERROR]\tname=%s\terror=%s", given, err)
 		return
 	}
 
-	var card Card
-	card = cards[0]
-	currentBestDistance := 256
+	card := cards[0]
 
 	for _, c := range cards {
-		upperTest := strings.ToUpper(c.Name)
-		testBestDistance := smetrics.WagnerFischer(name, upperTest, 1, 1, 2)
-
-		if testBestDistance < currentBestDistance {
+		if strings.EqualFold(name, c.Name) {
 			card = c
-			currentBestDistance = testBestDistance
 		}
 	}
 
-	log.Printf("[FOUND]\tcard=%s\tdistance=%i", card.Name, currentBestDistance)
+	log.Printf("[FOUND]\tcard=%s\tdistance=%i", card.Name)
 
 	s.UpdateStatus(0, Formats[rand.Intn(len(Formats))])
-	Formatter.Respond(given, card, s, m)
+	res := fmt.Sprintf("%s ($%s)\n%s", card.Name, card.Price, card.ImageUrl)
+	s.ChannelMessageSend(m.ChannelID, res)
 }
 
-func cardsByName(name string) ([]Card, error) {
-	requestUrl := ApiBase + "cards?name=" + url.QueryEscape(name)
+func cardByString(given string) ([]Card, error) {
+	parts := strings.Split(given, "/")
+	name := parts[0]
+	
+	requestUrl := ApiBase + "/cards/search?q=++" + url.QueryEscape(name)
+
+	if len(parts) >= 2 {
+		requestUrl += url.QueryEscape(" e:" + parts[1])
+	}
+
+	log.Printf("%s", requestUrl)
+	
 	resp, err := http.Get(requestUrl)
 
 	if err != nil {
@@ -144,19 +143,19 @@ func cardsByName(name string) ([]Card, error) {
 	} else if resp.StatusCode == 404 {
 		return nil, errors.New("Unable to find a card with `" + name + "`")
 	} else if resp.StatusCode != 200 {
-		return nil, errors.New("Error communicating with DeckBrew")
+		return nil, errors.New("Error communicating with Scryfall")
 	}
 
-	var cards []Card
+	var results Results
 
 	buf := new(bytes.Buffer)
 	buf.ReadFrom(resp.Body)
 
-	err = json.Unmarshal(buf.Bytes(), &cards)
+	err = json.Unmarshal(buf.Bytes(), &results)
 
 	if err != nil {
 		return nil, err
 	}
-
-	return cards, nil
+	
+	return results.Data, nil
 }
